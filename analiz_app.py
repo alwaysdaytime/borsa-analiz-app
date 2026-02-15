@@ -2,134 +2,140 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
-# --- 1. RADİKAL TEMİZLİK VE TASARIM ---
-st.set_page_config(page_title="Vision Strategic AI", layout="wide", initial_sidebar_state="expanded")
+# --- 1. AYARLAR & TEMA (FULL CLEAN) ---
+st.set_page_config(page_title="Vision Strategic AI", layout="wide")
 
-# Tüm gereksiz Streamlit bileşenlerini ve o yazıları kökten kazıyan CSS
 st.markdown("""
     <style>
-    /* Üst menü, navigasyon ve gereksiz metinleri tamamen yok et */
+    /* Üst ve Yan Menü Kalıntılarını Temizle */
     header {visibility: hidden !important;}
-    [data-testid="stSidebarNav"] {display: none !important;}
-    .st-emotion-cache-6qob1r {display: none !important;}
-    div[role="nav"] {display: none !important;}
+    [data-testid="stSidebar"] {display: none !important;}
+    .st-emotion-cache-16idsys {display: none !important;}
     
-    /* Global Font ve Arka Plan */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
-    html, body, [class*="st-"] { font-family: 'Inter', sans-serif; }
+    html, body, [class*="st-"] { font-family: 'Inter', sans-serif; background-color: #fcfdfe; }
     
-    /* Ana Konteyner */
-    .main-card {
+    /* Üst Panel (Hisse Seçim Alanı) */
+    .top-bar {
         background: #ffffff;
-        border-radius: 20px;
-        padding: 40px;
-        border: 1px solid #f0f2f6;
+        padding: 15px 25px;
+        border-radius: 15px;
+        border: 1px solid #e2e8f0;
+        margin-bottom: 25px;
+        display: flex;
+        align-items: center;
+        gap: 15px;
+    }
+    
+    /* Karar Kartı */
+    .main-card {
+        background: white;
+        border-radius: 24px;
+        padding: 35px;
+        border: 1px solid #eef2ff;
         box-shadow: 0 10px 30px rgba(0,0,0,0.02);
     }
     
-    /* AI Karar Başlığı */
-    .decision-title {
-        font-size: 2.5rem; font-weight: 800;
-        background: linear-gradient(120deg, #1a73e8, #9b72f3);
+    .status-badge {
+        font-size: 2.2rem; font-weight: 800;
+        background: linear-gradient(90deg, #1a73e8, #9b72f3);
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        margin-bottom: 20px;
     }
-
-    /* Bilgi Kutuları */
+    
     .brief-box {
-        background: #f8faff;
-        border-radius: 15px;
-        padding: 25px;
-        border-left: 5px solid #1a73e8;
-        color: #3c4043;
-        line-height: 1.7;
+        background: #f8faff; padding: 25px; border-radius: 15px;
+        border-left: 5px solid #1a73e8; color: #3c4043; line-height: 1.7;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. PORTFÖY YÖNETİMİ (SOL PANEL) ---
+# --- 2. ÜST PANEL YÖNETİMİ ---
 if 'portfolio' not in st.session_state:
     st.session_state.portfolio = ["THYAO.IS", "EREGL.IS", "SISE.IS", "BTC-USD"]
 
-with st.sidebar:
-    st.markdown("<h1 style='color:#1a73e8; font-size:1.8rem;'>Vision AI</h1>", unsafe_allow_html=True)
-    st.write("Profesyonel Analiz Sistemi")
-    st.markdown("---")
+# Üst Bar Tasarımı
+with st.container():
+    st.markdown("<h2 style='color:#1a73e8; margin-top:0;'>💠 Vision AI Strategic Terminal</h2>", unsafe_allow_html=True)
     
-    # Yeni Hisse Ekleme (+)
-    c_in, c_bt = st.columns([3, 1])
-    add_symbol = c_in.text_input("Sembol", placeholder="Örn: AAPL", label_visibility="collapsed")
-    if c_bt.button("➕"):
-        if add_symbol and add_symbol.upper() not in st.session_state.portfolio:
-            st.session_state.portfolio.append(add_symbol.upper())
-            st.rerun()
-
-    st.markdown("<br>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([2, 4, 2])
     
-    # Liste ve Hisse Çıkarma (-)
-    for stock in st.session_state.portfolio:
-        c_name, c_del = st.columns([4, 1])
-        if c_name.button(f"📊 {stock}", use_container_width=True):
-            st.session_state.selected_stock = stock
-        if c_del.button("➖", key=f"del_{stock}"):
-            st.session_state.portfolio.remove(stock)
-            st.rerun()
+    # Hisse Seçimi (Dropdown - Üstte)
+    with c1:
+        selected = st.selectbox("İzleme Listeniz", st.session_state.portfolio, label_visibility="collapsed")
+        st.session_state.selected_stock = selected
+        
+    # Yeni Hisse Ekle/Çıkar
+    with c2:
+        sub_c1, sub_c2, sub_c3 = st.columns([3, 1, 1])
+        new_s = sub_c1.text_input("Yeni Sembol Ekle", placeholder="Örn: AAPL", label_visibility="collapsed")
+        if sub_c2.button("➕ Ekle"):
+            if new_s and new_s.upper() not in st.session_state.portfolio:
+                st.session_state.portfolio.append(new_s.upper())
+                st.rerun()
+        if sub_c3.button("➖ Sil"):
+            if len(st.session_state.portfolio) > 1:
+                st.session_state.portfolio.remove(st.session_state.selected_stock)
+                st.session_state.selected_stock = st.session_state.portfolio[0]
+                st.rerun()
 
-# --- 3. VERİ ÇEKME VE TÜRKÇE ANALİZ ---
-if 'selected_stock' not in st.session_state:
-    st.session_state.selected_stock = st.session_state.portfolio[0]
-
-@st.cache_data(ttl=600)
-def get_stock_report(symbol):
+# --- 3. VERİ VE ANALİZ ---
+@st.cache_data(ttl=300)
+def get_report(symbol):
     try:
         t = yf.Ticker(symbol)
         return t.info, t.history(period="1y")
     except: return None, None
 
-info, hist = get_stock_report(st.session_state.selected_stock)
+info, hist = get_report(st.session_state.selected_stock)
 
-# --- 4. ANA EKRAN ---
+# --- 4. ANALİZ EKRANI ---
 if info and not hist.empty:
-    last_p = hist['Close'].iloc[-1]
+    p = hist['Close'].iloc[-1]
+    prev_p = hist['Close'].iloc[-2]
+    chg = ((p / prev_p) - 1) * 100
     
-    # Teknik Motor
+    # Teknik Reçete
     rsi = 100 - (100 / (1 + (hist['Close'].diff().clip(lower=0).rolling(14).mean() / -hist['Close'].diff().clip(upper=0).rolling(14).mean()).iloc[-1]))
     ma20 = hist['Close'].rolling(20).mean().iloc[-1]
     
     st.markdown("<div class='main-card'>", unsafe_allow_html=True)
     
-    # Şirket Kimliği
+    # Üst Bilgi
     st.markdown(f"### {info.get('longName', st.session_state.selected_stock)}")
-    st.metric("Güncel Fiyat", f"{last_p:,.2f} {info.get('currency', '')}")
-
-    # AI Karar Alanı
+    st.metric("Piyasa Değeri", f"{p:,.2f} {info.get('currency', '')}", f"{chg:.2f}%")
+    
     st.markdown("---")
+    
+    # AI Karar Motoru
     score = 0
-    reasons = []
-    if rsi < 35: score += 2; reasons.append("Teknik veriler aşırı satıma işaret ediyor, alım fırsatı olabilir.")
-    elif rsi > 65: score -= 2; reasons.append("Teknik veriler aşırı alıma işaret ediyor, kâr realizasyonu beklenebilir.")
-    if last_p > ma20: score += 1; reasons.append("Fiyat kısa vadeli trendin (MA20) üzerinde seyrediyor.")
-    
-    karar = "GÜÇLÜ AL" if score >= 2 else "GÜÇLÜ SAT" if score <= -2 else "NÖTR / BEKLE"
-    st.markdown(f"<div class='decision-title'>{karar}</div>", unsafe_allow_html=True)
-    
-    for r in reasons:
-        st.write(f"✅ {r}")
+    notes = []
+    if rsi < 35: score += 2; notes.append("RSI aşırı satımda: Teknik bir düzeltme/yükseliş muhtemel.")
+    elif rsi > 65: score -= 2; notes.append("RSI aşırı alımda: Fiyat doygunluğa ulaştı, kâr satışı riski.")
+    if p > ma20: score += 1; notes.append("Trend Pozitif: Fiyat kısa vade ortalamanın üzerinde.")
+    else: score -= 1; notes.append("Trend Negatif: Satış baskısı kısa vadede devam ediyor.")
 
-    # Şirket Profili (Türkçe Analizli)
-    st.markdown("---")
-    st.markdown("#### 🏢 Şirket Profili & Temel Veriler")
+    karar = "GÜÇLÜ AL SİNYALİ" if score >= 2 else "GÜÇLÜ SAT SİNYALİ" if score <= -2 else "NÖTR / BEKLE"
+    st.markdown(f"<div class='status-badge'>{karar}</div>", unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Piyasa Değeri", f"{info.get('marketCap', 0)/1e9:.2f}B")
-    col2.metric("F/K Oranı", f"{info.get('trailingPE', 'N/A')}")
-    col3.metric("Özkaynak Karlılığı", f"%{info.get('returnOnEquity', 0)*100:.2f}")
+    st.markdown("#### 🤖 Strateji Notları")
+    for n in notes:
+        st.write(f"• {n}")
+
+    # Şirket Profili
+    st.markdown("---")
+    st.markdown("#### 🏢 Kurumsal Profil & Temel Veriler")
+    
+    d1, d2, d3, d4 = st.columns(4)
+    d1.metric("Piyasa Değeri", f"{info.get('marketCap', 0)/1e9:.2f}B")
+    d2.metric("F/K Oranı", f"{info.get('trailingPE', 'N/A')}")
+    d3.metric("F/DD Oranı", f"{info.get('priceToBook', 'N/A')}")
+    d4.metric("Temettü Verimi", f"%{info.get('dividendYield', 0)*100:.2f}")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("##### 📝 Faaliyet Özeti")
-    desc = info.get('longBusinessSummary', 'Şirket bilgisi yüklenemedi.')
-    st.markdown(f"<div class='brief-box'><b>Yapay Zeka Özeti:</b> {info.get('longName')} firması, {info.get('sector')} sektöründe faaliyet gösteren bir kuruluştur.<br><br><i>{desc[:800]}...</i></div>", unsafe_allow_html=True)
+    st.markdown("##### 📝 İş Özeti (AI Analiz)")
+    desc = info.get('longBusinessSummary', 'Açıklama mevcut değil.')
+    st.markdown(f"<div class='brief-box'><b>Özet:</b> {info.get('longName')} kuruluşu, {info.get('sector')} sektöründe liderlik/operasyon yürütmektedir.<br><br><i>{desc[:900]}...</i></div>", unsafe_allow_html=True)
     
     st.markdown("</div>", unsafe_allow_html=True)
 else:
-    st.error("Veri bağlantısı kurulamadı. Lütfen sembolü kontrol edin.")
+    st.error("Veri çekilemedi. Lütfen sembolü (Örn: THYAO.IS) kontrol edip tekrar deneyin.")
