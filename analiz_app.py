@@ -5,83 +5,77 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # --- SAYFA YAPILANDIRMASI ---
-st.set_page_config(page_title="Vision Finans Terminali", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Vision Finans Terminali", layout="wide")
 
-# --- ÖZEL TASARIM (DAHA FERAH ARKA PLAN VE MODERN KARTLAR) ---
+# --- AYDINLIK TEMA (CSS) ---
 st.markdown("""
     <style>
-    /* Arka planı daha yumuşak bir koyu mavi/gri tonuna çektik */
+    /* Ana arka plan */
     .stApp { 
-        background-color: #1a1c24; 
-        color: #ffffff; 
+        background-color: #f8f9fa; 
+        color: #2c3e50; 
     }
-    /* Kart tasarımları */
+    /* Metrik Kartları - Aydınlık ve Gölgeli */
     .metric-card {
-        background: linear-gradient(145deg, #232732, #1c1f26);
+        background-color: #ffffff;
         padding: 20px;
-        border-radius: 15px;
-        border: 1px solid #3d4455;
+        border-radius: 12px;
+        border: 1px solid #e9ecef;
         text-align: center;
-        box-shadow: 5px 5px 15px rgba(0,0,0,0.2);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        margin-bottom: 10px;
     }
-    /* Kenar çubuğu stili */
+    .metric-card h2 { color: #1a73e8; margin: 0; }
+    .metric-card p { color: #6c757d; margin: 0; font-size: 0.9rem; }
+    
+    /* Yan Panel */
     section[data-testid="stSidebar"] {
-        background-color: #111318 !important;
+        background-color: #ffffff !important;
+        border-right: 1px solid #dee2e6;
     }
+    /* Butonlar */
     .stButton>button {
-        border-radius: 20px;
-        background-color: #2d323e;
-        color: #00d4ff;
-        border: 1px solid #3d4455;
-        transition: all 0.3s;
+        border-radius: 8px;
+        background-color: #f1f3f4;
+        color: #3c4043;
+        border: 1px solid #dadce0;
+        font-weight: 500;
     }
     .stButton>button:hover {
-        background-color: #00d4ff;
-        color: #111318;
-        border-color: #00d4ff;
+        background-color: #1a73e8;
+        color: white;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- SIDEBAR: DİNAMİK LİSTE YÖNETİMİ ---
+# --- SIDEBAR: DİNAMİK LİSTE ---
 with st.sidebar:
-    st.title("🛡️ Vision Terminal")
-    st.markdown("---")
-    
-    st.subheader("⭐ İzleme Listesini Düzenle")
-    # Kullanıcının kendi listesini oluşturabileceği alan
-    default_list = "THYAO.IS, EREGL.IS, ASELS.IS, BTC-USD, GC=F"
-    user_list_input = st.text_area("Hisseleri virgül ile ekle/sil:", value=default_list)
+    st.title("🛡️ Vision Pro")
+    st.subheader("⭐ İzleme Listesi")
+    default_list = "THYAO.IS, EREGL.IS, SISE.IS, BTC-USD, GC=F"
+    user_list_input = st.text_area("Hisseleri virgülle ayırın:", value=default_list)
     izleme_listesi = [x.strip().upper() for x in user_list_input.split(",")]
     
-    st.markdown("---")
-    st.subheader("📍 Hızlı Seçim")
-    
-    # Session state ile seçili hisseyi tutma
     if 'secilen_hisse' not in st.session_state:
         st.session_state.secilen_hisse = izleme_listesi[0]
 
-    # Dinamik butonlar
-    cols = st.columns(2) # Butonları yan yana koymak için
+    st.markdown("---")
+    cols = st.columns(2)
     for i, f in enumerate(izleme_listesi):
         if cols[i % 2].button(f):
             st.session_state.secilen_hisse = f
     
-    st.markdown("---")
-    periyot = st.selectbox("📅 Analiz Dönemi", ["1mo", "3mo", "6mo", "1y", "2y", "5y"], index=2)
+    periyot = st.selectbox("📅 Dönem", ["1mo", "3mo", "6mo", "1y", "2y", "5y"], index=2)
 
-# --- VERİ İŞLEME ---
+# --- VERİ İŞLEME VE GÜVENLİ HACİM HESABI ---
 @st.cache_data(ttl=300)
 def verileri_getir(symbol, period):
     try:
         data = yf.download(symbol, period=period)
         if data.empty: return None
         data['MA20'] = data['Close'].rolling(window=20).mean()
-        data['MA50'] = data['Close'].rolling(window=50).mean()
-        delta = data['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        data['RSI'] = 100 - (100 / (1 + (gain / loss)))
+        data['RSI'] = 100 - (100 / (1 + (data['Close'].diff().where(data['Close'].diff() > 0, 0).rolling(14).mean() / 
+                                        -data['Close'].diff().where(data['Close'].diff() < 0, 0).rolling(14).mean())))
         return data
     except:
         return None
@@ -89,50 +83,44 @@ def verileri_getir(symbol, period):
 df = verileri_getir(st.session_state.secilen_hisse, periyot)
 
 if df is not None:
-    son_fiyat = float(df['Close'].iloc[-1])
-    onceki_fiyat = float(df['Close'].iloc[-2])
-    degisim = ((son_fiyat - onceki_fiyat) / onceki_fiyat) * 100
-    rsi_son = float(df['RSI'].iloc[-1])
+    # Verileri Güvenli Sayıya Çevirme
+    def to_float(val):
+        try: return float(val.iloc[0]) if hasattr(val, 'iloc') else float(val)
+        except: return 0.0
 
-    st.header(f"📈 {st.session_state.secilen_hisse} Teknik Analiz")
+    son_fiyat = to_float(df['Close'].iloc[-1])
+    onceki_fiyat = to_float(df['Close'].iloc[-2])
+    degisim = ((son_fiyat - onceki_fiyat) / onceki_fiyat) * 100
+    hacim = to_float(df['Volume'].iloc[-1])
+    rsi_son = to_float(df['RSI'].iloc[-1])
+
+    st.subheader(f"📈 {st.session_state.secilen_hisse} Analiz Paneli")
     
-    # Üst Panel Kartları
+    # Metrik Kartları
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.markdown(f"<div class='metric-card'><p style='color:#aeb9cc'>Son Fiyat</p><h2 style='color:#00d4ff'>{son_fiyat:,.2f}</h2><p style='color:{'#00ff88' if degisim>0 else '#ff4b4b'}'>{degisim:+.2f}%</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><p>Son Fiyat</p><h2>{son_fiyat:,.2f}</h2><p style='color:{'#28a745' if degisim>0 else '#dc3545'}'>{degisim:+.2f}%</p></div>", unsafe_allow_html=True)
     with c2:
-        st.markdown(f"<div class='metric-card'><p style='color:#aeb9cc'>RSI (14)</p><h2 style='color:#ffd700'>{rsi_son:.1f}</h2><p>{'Aşırı Alım' if rsi_son>70 else 'Aşırı Satım' if rsi_son<30 else 'Nötr'}</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><p>RSI (14)</p><h2 style='color:#6f42c1'>{rsi_son:.1f}</h2><p>{'Pahalı' if rsi_son>70 else 'Ucuz' if rsi_son<30 else 'Normal'}</p></div>", unsafe_allow_html=True)
     with c3:
-        st.markdown(f"<div class='metric-card'><p style='color:#aeb9cc'>20 Günlük Ort.</p><h2>{float(df['MA20'].iloc[-1]):,.2f}</h2><p>Trend Desteği</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><p>Hacim</p><h2 style='color:#17a2b8'>{hacim:,.0f}</h2><p>Adet</p></div>", unsafe_allow_html=True)
     with c4:
-        st.markdown(f"<div class='metric-card'><p style='color:#aeb9cc'>Hacim</p><h2>{df['Volume'].iloc[-1]:,.0f}</h2><p>Günlük İşlem</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><p>20G Ort.</p><h2 style='color:#fd7e14'>{to_float(df['MA20'].iloc[-1]):,.2f}</h2><p>Destek</p></div>", unsafe_allow_html=True)
 
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # --- GRAFİK ALANI ---
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08, row_heights=[0.75, 0.25])
-
-    # Mum Grafiği (Renkleri daha canlı yaptık)
-    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], 
-                                increasing_line_color='#00ff88', decreasing_line_color='#ff4b4b', name="Fiyat"), row=1, col=1)
+    # --- GRAFİK ---
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1, row_heights=[0.7, 0.3])
     
-    # Ortalamalar
-    fig.add_trace(go.Scatter(x=df.index, y=df['MA20'], name="MA20", line=dict(color='#ffaa00', width=2)), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df['MA50'], name="MA50", line=dict(color='#00d4ff', width=2)), row=1, col=1)
+    # Aydınlık Temaya Uygun Mum Grafiği
+    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
+                                increasing_line_color='#28a745', decreasing_line_color='#dc3545', name="Fiyat"), row=1, col=1)
+    
+    fig.add_trace(go.Scatter(x=df.index, y=df['MA20'], name="MA20", line=dict(color='#fd7e14', width=2)), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name="RSI", line=dict(color='#6f42c1', width=2)), row=2, col=1)
 
-    # RSI
-    fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name="RSI", line=dict(color='#a371f7', width=2)), row=2, col=1)
-    fig.add_hline(y=70, line_dash="dash", line_color="#ff4b4b", row=2, col=1)
-    fig.add_hline(y=30, line_dash="dash", line_color="#00ff88", row=2, col=1)
-
-    fig.update_layout(height=650, template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                      xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=10, b=10))
+    fig.update_layout(height=600, template="plotly_white", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                      xaxis_rangeslider_visible=False, margin=dict(l=0, r=0, t=0, b=0))
     
     st.plotly_chart(fig, use_container_width=True)
 
-    # Alt Bilgi Paneli
-    with st.expander("📝 Strateji Notu"):
-        st.write(f"Şu an **{st.session_state.secilen_hisse}** için teknik göstergeler inceleniyor. Fiyat 20 günlük ortalamanın {'üzerinde' if son_fiyat > df['MA20'].iloc[-1] else 'altında'} seyrediyor.")
-
 else:
-    st.error("⚠️ Veri alınamadı. Lütfen sembolleri kontrol edin.")
+    st.error("Sembol bulunamadı. Lütfen kontrol edin.")
