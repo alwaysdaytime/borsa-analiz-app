@@ -1,136 +1,127 @@
 import streamlit as st
 import yfinance as yf
-import pandas as pd
-import numpy as np
 
-# --- 1. AYARLAR & TEMA ---
-st.set_page_config(page_title="Vision AI | Fırsat Radarı", layout="wide")
+# --- 1. ULTRA COMPACT TEMA ---
+st.set_page_config(page_title="Vision AI Terminal", layout="wide")
 
 st.markdown("""
     <style>
     header {visibility: hidden !important;}
     [data-testid="stSidebar"] {display: none !important;}
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
-    html, body, [class*="st-"] { font-family: 'Inter', sans-serif; background-color: #fcfdfe; }
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
     
-    .main-card { background: white; border-radius: 24px; padding: 35px; border: 1px solid #eef2ff; box-shadow: 0 10px 30px rgba(0,0,0,0.02); }
-    
-    .radar-box {
-        background: linear-gradient(135deg, #1e3a8a, #3b82f6);
-        color: white; border-radius: 18px; padding: 25px; margin-bottom: 30px;
-        border-bottom: 5px solid #1d4ed8;
+    html, body, [class*="st-"] { 
+        font-family: 'Inter', sans-serif; 
+        background-color: #f8fafc;
+        font-size: 14px;
     }
     
-    .recommendation-box {
-        padding: 15px 25px; border-radius: 12px; color: white;
-        font-weight: 800; font-size: 1.5rem; text-align: center; margin: 15px 0;
+    /* Radar Bar: Daha ince ve kompakt */
+    .radar-mini {
+        background: #0f172a; color: #38bdf8; border-radius: 8px;
+        padding: 8px 15px; display: flex; align-items: center;
+        justify-content: space-between; margin-bottom: 15px;
+        font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;
     }
+
+    /* Ana Terminal Kartı */
+    .terminal-card {
+        background: white; border-radius: 12px; padding: 20px;
+        border: 1px solid #e2e8f0;
+    }
+
+    /* Veri Satırları */
+    .v-row {
+        display: flex; justify-content: space-between; 
+        padding: 6px 0; border-bottom: 1px dashed #f1f5f9;
+    }
+    .v-label { color: #64748b; font-weight: 500; }
+    .v-value { font-weight: 700; color: #1e293b; }
     
-    .brief-box { background: #f8faff; padding: 20px; border-radius: 15px; border-left: 5px solid #3b82f6; }
+    /* Karar Rozeti */
+    .status-pill {
+        padding: 2px 10px; border-radius: 4px; font-weight: 700; font-size: 0.75rem;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. PORTFÖY YÖNETİMİ ---
+# --- 2. VERİ YÖNETİMİ ---
 if 'portfolio' not in st.session_state:
-    st.session_state.portfolio = ["THYAO.IS", "EREGL.IS", "SISE.IS", "BTC-USD", "AAPL", "NVDA"]
+    st.session_state.portfolio = ["THYAO.IS", "EREGL.IS", "SISE.IS", "BTC-USD", "NVDA"]
 
-st.markdown("<h2 style='color:#1e3a8a; margin-top:0;'>💠 Vision AI Strategic Radar</h2>", unsafe_allow_html=True)
+# Üst Bar (Seçim ve Ekleme Yan Yana)
+st.markdown("<h3 style='margin:0 0 15px 0;'>💠 Terminal <span style='font-weight:100;'>v10</span></h3>", unsafe_allow_html=True)
 
-# Üst Kontrol Barı
-c1, c2, c3 = st.columns([2, 4, 2])
-with c1:
-    selected = st.selectbox("Hisse Seçimi", st.session_state.portfolio, label_visibility="collapsed")
-    st.session_state.selected_stock = selected
-with c2:
-    sub_c1, sub_c2, sub_c3 = st.columns([3, 1, 1])
-    new_s = sub_c1.text_input("Yeni Ekle", placeholder="Sembol", label_visibility="collapsed")
-    if sub_c2.button("➕ Ekle"):
-        if new_s and new_s.upper() not in st.session_state.portfolio:
-            st.session_state.portfolio.append(new_s.upper()); st.rerun()
-    if sub_c3.button("➖ Sil"):
-        if len(st.session_state.portfolio) > 1:
-            st.session_state.portfolio.remove(st.session_state.selected_stock)
-            st.session_state.selected_stock = st.session_state.portfolio[0]; st.rerun()
+head_c1, head_c2, head_c3 = st.columns([2, 2, 4])
+with head_c1:
+    selected = st.selectbox("Hisse", st.session_state.portfolio, label_visibility="collapsed")
+with head_c2:
+    new_h = st.text_input("Ekle", placeholder="+ Sembol ekle", label_visibility="collapsed")
+    if new_h:
+        if new_h.upper() not in st.session_state.portfolio:
+            st.session_state.portfolio.append(new_h.upper()); st.rerun()
 
-# --- 3. RADAR FONKSİYONU (POTANSİYEL TARAMA) ---
+# --- 3. RADAR MİNİ ---
 @st.cache_data(ttl=600)
-def scan_radar(portfolio):
-    radar_results = []
-    for stock in portfolio:
-        try:
-            t = yf.Ticker(stock)
-            df = t.history(period="1mo")
-            if len(df) < 20: continue
-            
-            # Kısa Vade Potansiyel Hesaplama (Skorlama)
-            last_close = df['Close'].iloc[-1]
-            rsi = 100 - (100 / (1 + (df['Close'].diff().clip(lower=0).tail(14).mean() / -df['Close'].diff().clip(upper=0).tail(14).mean())))
-            ma5 = df['Close'].rolling(5).mean().iloc[-1]
-            vol_ratio = df['Volume'].iloc[-1] / df['Volume'].rolling(10).mean().iloc[-1]
-            
-            score = 0
-            if rsi < 45: score += 2 # Dönüş potansiyeli
-            if last_close > ma5: score += 2 # Kısa vade momentum
-            if vol_ratio > 1.2: score += 3 # Hacim onayı
-            
-            radar_results.append({"symbol": stock, "score": score, "rsi": rsi, "price": last_close})
-        except: continue
-    return sorted(radar_results, key=lambda x: x['score'], reverse=True)
-
-# --- 4. ANA PANEL ---
-# RADAR KISMI (EN ÜSTTE)
-radar_list = scan_radar(st.session_state.portfolio)
-if radar_list:
-    best = radar_list[0]
-    st.markdown(f"""
-        <div class="radar-box">
-            <h4 style="margin:0; opacity:0.9;">🚀 Günlük Yükseliş Potansiyeli En Yüksek</h4>
-            <h1 style="margin:5px 0;">{best['symbol']} <small style="font-size:1.2rem;">(Skor: {best['score']}/7)</small></h1>
-            <p style="margin:0; font-size:0.9rem;">AI Analizi: Hacim artışı ve RSI uyumu kısa vadeli bir sıçrama olasılığını %75+ gösteriyor.</p>
-        </div>
-    """, unsafe_allow_html=True)
-
-# DETAYLI ANALİZ KISMI
-@st.cache_data(ttl=300)
-def get_full_analysis(symbol):
+def get_mini_radar(portfolio):
     try:
-        t = yf.Ticker(symbol)
-        df = t.history(period="1y")
-        return t.info, df
-    except: return None, None
+        t = yf.Ticker(portfolio[0]); h = t.history(period="2d")
+        chg = ((h['Close'].iloc[-1] / h['Close'].iloc[-2]) - 1) * 100
+        return portfolio[0], chg
+    except: return "N/A", 0
 
-info, hist = get_full_analysis(st.session_state.selected_stock)
+top_s, top_v = get_mini_radar(st.session_state.portfolio)
+st.markdown(f"""
+    <div class="radar-mini">
+        <span>● RADAR: <b>{top_s}</b> Aktif Sinyal İzleniyor</span>
+        <span style="color:{'#10b981' if top_v > 0 else '#ef4444'}">Günlük Değişim: {'+' if top_v > 0 else ''}{top_v:.2f}%</span>
+    </div>
+""", unsafe_allow_html=True)
 
-if info and hist is not None:
-    st.markdown("<div class='main-card'>", unsafe_allow_html=True)
-    col_head1, col_head2 = st.columns([3, 1])
-    col_head1.markdown(f"### {info.get('longName', st.session_state.selected_stock)}")
-    col_head2.metric("Güncel Fiyat", f"{hist['Close'].iloc[-1]:,.2f}")
+# --- 4. ANA TERMİNAL ---
+info_tick = yf.Ticker(selected)
+info = info_tick.info
+hist = info_tick.history(period="5d")
 
-    # TEKNİK KARAR MOTORU (AL/SAT)
-    # (Önceki turn'deki mantık korunmuştur)
-    rsi = 100 - (100 / (1 + (hist['Close'].diff().clip(lower=0).tail(14).mean() / -hist['Close'].diff().clip(upper=0).tail(14).mean())))
-    score = 0
-    if rsi < 35: score += 3
-    if hist['Close'].iloc[-1] > hist['Close'].ewm(span=20).mean().iloc[-1]: score += 2
+if not hist.empty:
+    last_p = hist['Close'].iloc[-1]
+    prev_p = hist['Close'].iloc[-2]
+    day_chg = ((last_p / prev_p) - 1) * 100
     
-    if score >= 4: res, clr = "GÜÇLÜ AL", "#10b981"
-    elif score >= 2: res, clr = "AL", "#34d399"
-    elif score <= -4: res, clr = "GÜÇLÜ SAT", "#ef4444"
-    else: res, clr = "TUT / NÖTR", "#64748b"
-
-    st.markdown(f"<div class='recommendation-box' style='background:{clr}'>ÖNERİ: {res}</div>", unsafe_allow_html=True)
-
-    # DETAYLAR VE ŞİRKET PROFİLİ
-    st.markdown("---")
-    st.markdown("#### 🏢 Şirket Profili & Temel Veriler")
-    f1, f2, f3, f4 = st.columns(4)
-    f1.metric("F/K Oranı", f"{info.get('trailingPE', 'N/A')}")
-    f2.metric("Piyasa Değeri", f"{info.get('marketCap', 0)/1e9:.2f}B")
-    f3.metric("Beta", f"{info.get('beta', 'N/A')}")
-    f4.metric("Temettü", f"%{info.get('dividendYield', 0)*100:.2f}")
+    st.markdown("<div class='terminal-card'>", unsafe_allow_html=True)
+    
+    # Başlık Alanı
+    col_t1, col_t2 = st.columns([3, 1])
+    with col_t1:
+        st.markdown(f"**{info.get('longName', selected)}**")
+        color = "#10b981" if day_chg > 0 else "#ef4444"
+        st.markdown(f"<span class='status-pill' style='background:{color}20; color:{color};'>AI ANALİZ: AKTİF</span>", unsafe_allow_html=True)
+    with col_t2:
+        st.markdown(f"<div style='text-align:right; font-size:1.2rem; font-weight:800;'>{last_p:,.2f}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='text-align:right; color:{color}; font-size:0.8rem;'>{day_chg:+.2f}%</div>", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
-    summary = info.get('longBusinessSummary', 'Özet yok.').replace("'", "").replace('"', "")
-    st.markdown(f"<div class='brief-box'><b>AI Öngörüsü:</b> {st.session_state.selected_stock} kısa vadeli trend kanalı içerisinde {res.lower()} sinyali üretmektedir. <br><br><i>{summary[:850]}...</i></div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Veri Gridleri
+    g1, g2, g3 = st.columns(3)
+    
+    with g1:
+        st.markdown(f"<div class='v-row'><span class='v-label'>F/K Oranı</span><span class='v-value'>{info.get('trailingPE', 'N/A')}</span></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='v-row'><span class='v-label'>Piyasa Değeri</span><span class='v-value'>{info.get('marketCap', 0)/1e9:.1f}B</span></div>", unsafe_allow_html=True)
+    
+    with g2:
+        st.markdown(f"<div class='v-row'><span class='v-label'>Beta (Risk)</span><span class='v-value'>{info.get('beta', 'N/A')}</span></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='v-row'><span class='v-label'>52H Zirve</span><span class='v-value'>{info.get('fiftyTwoWeekHigh', 0):,.1f}</span></div>", unsafe_allow_html=True)
+
+    with g3:
+        st.markdown(f"<div class='v-row'><span class='v-label'>Temettü</span><span class='v-value'>%{info.get('dividendYield', 0)*100:.1f}</span></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='v-row'><span class='v-label'>Sektör</span><span class='v-value'>{info.get('sector', 'N/A')[:10]}..</span></div>", unsafe_allow_html=True)
+
+    # Mini Özet (Yalnızca 2 satır)
+    st.markdown("<br><div style='font-size:0.85rem; color:#475569; border-top:1px solid #f1f5f9; pt-10;'>", unsafe_allow_html=True)
+    summary = info.get('longBusinessSummary', 'Özet yok.')[:250]
+    st.markdown(f"<b>Not:</b> {summary}...", unsafe_allow_html=True)
+    st.markdown("</div></div>", unsafe_allow_html=True)
+
+else:
+    st.warning("Veri yüklenemedi.")
