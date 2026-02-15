@@ -20,7 +20,7 @@ if 'portfolio' not in st.session_state:
     st.session_state.portfolio = load_portfolio()
 
 # --- 2. AYARLAR & TEMA ---
-st.set_page_config(page_title="Vision AI | Live Terminal", layout="wide")
+st.set_page_config(page_title="Vision AI | Smart Terminal", layout="wide")
 st.markdown("""
     <style>
     header {visibility: hidden !important;}
@@ -30,7 +30,7 @@ st.markdown("""
     .v-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #f1f5f9; }
     .bist-item { 
         background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; 
-        text-align: center; border-bottom: 3px solid #3b82f6;
+        text-align: center; border-bottom: 3px solid #f59e0b; /* Alt çizgi altın rengi: Fırsat simgesi */
     }
     .recommendation-bar { padding: 8px; border-radius: 6px; text-align: center; font-weight: 800; font-size: 1.1rem; margin: 10px 0; color: white; }
     .live-data-box { 
@@ -45,44 +45,74 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. BIST GENEL AI TARAYICI (Fiyat Bilgisi Eklendi) ---
-@st.cache_data(ttl=600)
-def scan_bist_market():
+# --- 3. AI POTANSİYEL TARAYICI (ARKA PLAN ANALİZİ) ---
+@st.cache_data(ttl=900)
+def find_opportunity_hisseler():
     results = []
-    # Tarama listesi
-    candidates = ["THYAO.IS", "EREGL.IS", "ASELS.IS", "TUPRS.IS", "GARAN.IS", "AKBNK.IS", "SISE.IS", "KCHOL.IS"]
+    # Geniş tarama listesi
+    candidates = ["THYAO.IS", "EREGL.IS", "ASELS.IS", "TUPRS.IS", "GARAN.IS", 
+                  "AKBNK.IS", "SISE.IS", "KCHOL.IS", "SASA.IS", "BIMAS.IS", "FROTO.IS"]
+    
     for symbol in candidates:
         try:
             t = yf.Ticker(symbol)
-            df = t.history(period="2d")
-            if len(df) > 1:
-                last_p = df['Close'].iloc[-1]
-                chg = ((last_p / df['Close'].iloc[-2]) - 1) * 100
-                results.append({"symbol": symbol, "price": last_p, "chg": chg})
+            df = t.history(period="1mo")
+            if len(df) < 20: continue
+            
+            # Teknik Metrikler
+            last_p = df['Close'].iloc[-1]
+            prev_p = df['Close'].iloc[-2]
+            chg = ((last_p / prev_p) - 1) * 100
+            sma20 = df['Close'].rolling(20).mean().iloc[-1]
+            vol_avg = df['Volume'].tail(5).mean()
+            last_vol = df['Volume'].iloc[-1]
+            
+            # RSI Hesaplama
+            delta = df['Close'].diff()
+            gain = (delta.where(delta > 0, 0)).tail(14).mean()
+            loss = (-delta.where(delta < 0, 0)).tail(14).mean()
+            rsi = 100 - (100 / (1 + (gain / (loss + 1e-9))))
+            
+            # POTANSİYEL PUANI (0-100)
+            score = 0
+            if last_p > sma20: score += 30 # Trend başı
+            if last_vol > vol_avg: score += 40 # Hacim onayı
+            if 40 < rsi < 60: score += 30 # Güçlenme bölgesi
+            
+            if score >= 60: # Sadece yüksek potansiyelli olanlar
+                results.append({
+                    "symbol": symbol, 
+                    "price": last_p, 
+                    "chg": chg, 
+                    "score": score,
+                    "label": "YÜKSELİŞ BEKLENTİSİ" if score > 70 else "TEKNİK TAKİP"
+                })
         except: continue
-    # En çok yükselen ilk 3
-    return sorted(results, key=lambda x: x['chg'], reverse=True)[:3]
+    
+    return sorted(results, key=lambda x: x['score'], reverse=True)[:3]
 
 # --- 4. ARAYÜZ ÜST BÖLÜM ---
-st.markdown("<h4 style='margin:0;'>🚀 AI Market Opportunities (BIST Canlı)</h4>", unsafe_allow_html=True)
+st.markdown("<h4 style='margin:0;'>⚡ AI Teknik Analiz: Kısa Vadeli Potansiyeller</h4>", unsafe_allow_html=True)
 
-opps = scan_bist_market()
+opps = find_opportunity_hisseler()
 if opps:
     b_cols = st.columns(3)
     for idx, opp in enumerate(opps):
         with b_cols[idx]:
-            # Fiyat ve yüzdeyi içeren yeni tasarım
             st.markdown(f"""
                 <div class="bist-item">
                     <div style="font-weight:800; color:#1e3a8a; font-size:0.9rem;">{opp['symbol'].replace('.IS', '')}</div>
-                    <div style="font-weight:700; color:#0f172a; margin: 2px 0;">{opp['price']:,.2f} TL</div>
-                    <div style="color:#10b981; font-size:0.8rem; font-weight:600;">%{opp['chg']:+.2f}</div>
+                    <div style="font-size:0.7rem; font-weight:700; color:#f59e0b; margin-bottom:2px;">{opp['label']}</div>
+                    <div style="font-weight:700; color:#0f172a;">{opp['price']:,.2f} TL</div>
+                    <div style="color:#10b981; font-size:0.8rem;">GÜNLÜK: %{opp['chg']:+.2f}</div>
                 </div>
             """, unsafe_allow_html=True)
+else:
+    st.info("Kriterlere uygun kısa vadeli fırsat şu an bulunamadı. Market taranıyor...")
 
 st.markdown("---")
 
-# Kontroller
+# Portföy Kontrolleri (Kayıt sistemi burada korunuyor)
 c1, c2, c3, c4 = st.columns([2, 1.5, 0.5, 4.3])
 with c1:
     selected = st.selectbox("Portföyüm", st.session_state.portfolio, label_visibility="collapsed")
@@ -97,42 +127,40 @@ with c3:
     if st.button("🗑️") and len(st.session_state.portfolio) > 1:
         st.session_state.portfolio.remove(selected); save_portfolio(st.session_state.portfolio); st.rerun()
 
-# --- 5. DETAYLI VERİ & ANALİZ PANELİ ---
+# --- 5. SEÇİLİ HİSSE DETAY ANALİZ ---
 try:
     tick = yf.Ticker(selected)
     h_data = tick.history(period="1y")
-    
     if not h_data.empty:
         last = h_data['Close'].iloc[-1]
-        prev_close = h_data['Close'].iloc[-2] if len(h_data) > 1 else last
-        low_52 = h_data['Close'].min()
-        high_52 = h_data['Close'].max()
-        
+        prev_close = h_data['Close'].iloc[-2]
+        low_52, high_52 = h_data['Close'].min(), h_data['Close'].max()
         tavan, taban = prev_close * 1.10, prev_close * 0.90
         sma20 = h_data['Close'].rolling(20).mean().iloc[-1]
         karar, renk = ("BOĞA / AL", "#10b981") if last > sma20 else ("AYI / SAT", "#ef4444")
 
         st.markdown(f"<div class='recommendation-bar' style='background:{renk}'>{selected}: {karar}</div>", unsafe_allow_html=True)
         
+        # ANA ANALİZ KARTI
         st.markdown("<div class='terminal-card'>", unsafe_allow_html=True)
         g1, g2, g3 = st.columns(3)
         with g1:
-            st.markdown(f"<div class='v-row'><span class='v-label'>Fiyat</span><span class='v-value'>{last:,.2f}</span></div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='v-row'><span class='v-label'>Önc. Kapanış</span><span class='v-value'>{prev_close:,.2f}</span></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='v-row'><span>Fiyat</span><b>{last:,.2f}</b></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='v-row'><span>Önc. Kapanış</span><b>{prev_close:,.2f}</b></div>", unsafe_allow_html=True)
         with g2:
-            st.markdown(f"<div class='v-row'><span class='v-label'>12A En Düşük</span><span class='v-value'>{low_52:,.2f}</span></div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='v-row'><span class='v-label'>12A En Yüksek</span><span class='v-value'>{high_52:,.2f}</span></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='v-row'><span>12A En Düşük</span><b>{low_52:,.2f}</b></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='v-row'><span>12A En Yüksek</span><b>{high_52:,.2f}</b></div>", unsafe_allow_html=True)
         with g3:
             try:
                 inf = tick.info
-                pe_raw = inf.get('trailingPE', 'N/A')
-                pe = f"{pe_raw:.2f}" if isinstance(pe_raw, (int, float)) else "N/A"
+                pe = f"{inf.get('trailingPE', 0):.2f}"
                 mcap = f"{inf.get('marketCap', 0)/1e9:.1f}B"
-            except: pe, mcap = "N/A", "N/A"
-            st.markdown(f"<div class='v-row'><span class='v-label'>F/K Oranı</span><span class='v-value'>{pe}</span></div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='v-row'><span class='v-label'>Piyasa Değeri</span><span class='v-value'>{mcap}</span></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='v-row'><span>F/K Oranı</span><b>{pe}</b></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='v-row'><span>Piyasa Değeri</span><b>{mcap}</b></div>", unsafe_allow_html=True)
+            except: st.write("Finansal veri bekleniyor...")
         st.markdown("</div>", unsafe_allow_html=True)
 
+        # ANLIK PANEL
         st.markdown(f"""
             <div class="live-data-box">
                 <div class="live-item"><span class="live-label">Tavan</span><span class="live-val" style="color:#4ade80;">{tavan:,.2f}</span></div>
@@ -141,7 +169,5 @@ try:
                 <div class="live-item"><span class="live-label">Trend (20G)</span><span class="live-val">{'POZİTİF' if last > sma20 else 'NEGATİF'}</span></div>
             </div>
         """, unsafe_allow_html=True)
-    else:
-        st.warning("Veri çekilemedi. İnternet bağlantınızı kontrol edin.")
 except Exception as e:
-    st.error(f"Sistem Hatası: {e}")
+    st.error("Veri güncellenirken bir hata oluştu.")
