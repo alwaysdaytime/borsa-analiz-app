@@ -1,9 +1,8 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import time
 
-# --- 1. COMPACT TEMA ---
+# --- 1. AYARLAR & TEMA ---
 st.set_page_config(page_title="Vision AI | BIST Terminal", layout="wide")
 
 st.markdown("""
@@ -22,44 +21,42 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. PORTFÖY YÖNETİMİ ---
+# --- 2. HİSSE KAYIT SİSTEMİ (Oturum Boyunca Kalıcı) ---
 if 'portfolio' not in st.session_state:
+    # İlk açılışta varsayılan liste
     st.session_state.portfolio = ["THYAO.IS", "EREGL.IS", "SISE.IS", "BTC-USD"]
 
-# --- 3. BIST GENEL TARAYICI (GÜVENLİ MOD) ---
+# --- 3. BIST MARKET SCANNER (Hata Korumalı) ---
 @st.cache_data(ttl=1200)
 def scan_bist_market():
-    # Liste limitlere takılmamak için biraz daraltıldı
     candidates = ["AKBNK.IS", "ASELS.IS", "BIMAS.IS", "EREGL.IS", "FROTO.IS", "GARAN.IS", 
-                  "ISCTR.IS", "KCHOL.IS", "KOZAL.IS", "PGSUS.IS", "SAHOL.IS", "THYAO.IS", "TUPRS.IS"]
+                  "ISCTR.IS", "KCHOL.IS", "KOZAL.IS", "PGSUS.IS", "SAHOL.IS", "THYAO.IS"]
     results = []
     for symbol in candidates:
         try:
             t = yf.Ticker(symbol)
-            df = t.history(period="1mo", interval="1d")
-            if len(df) < 10: continue
-            
+            df = t.history(period="1mo")
+            if len(df) < 5: continue
             last_p = df['Close'].iloc[-1]
             change = ((last_p / df['Close'].iloc[-2]) - 1) * 100
             
-            # Basit RSI ve Hacim analizi
+            # Basit RSI hesaplama
             delta = df['Close'].diff()
             gain = (delta.where(delta > 0, 0)).tail(14).mean()
             loss = (-delta.where(delta < 0, 0)).tail(14).mean()
             rsi = 100 - (100 / (1 + (gain / loss)))
             
-            if rsi < 40: sig = "DİP DÖNÜŞÜ"
-            elif last_p > df['Close'].rolling(20).mean().iloc[-1]: sig = "TREND YUKARI"
-            else: continue
-
-            results.append({"symbol": symbol, "sig": sig, "chg": change})
+            sig = "TREND YUKARI" if last_p > df['Close'].rolling(20).mean().iloc[-1] else "İZLEMEDE"
+            if rsi < 35: sig = "AŞIRI UCUZ"
+            
+            results.append({"symbol": symbol, "sig": sig, "chg": change, "score": rsi})
         except: continue
-    return results[:3]
+    return sorted(results, key=lambda x: x['score'])[:3]
 
-# --- 4. ARAYÜZ ---
+# --- 4. ARAYÜZ YERLEŞİMİ ---
 st.markdown("<h4 style='margin:0;'>💠 Vision AI Market Scanner</h4>", unsafe_allow_html=True)
 
-# Market Sinyalleri
+# Üst Sinyaller
 try:
     bist_opps = scan_bist_market()
     b_cols = st.columns(3)
@@ -73,41 +70,47 @@ try:
                 </div>
             """, unsafe_allow_html=True)
 except:
-    st.info("Market tarayıcı şu an dinleniyor (Rate Limit)...")
+    st.info("Market tarayıcı şu an dinleniyor...")
 
 st.markdown("---")
 
-# Portföy Kontrolleri
+# Portföy Yönetimi (Kayıt ve Silme)
 c1, c2, c3, c4 = st.columns([2, 1.5, 0.5, 4])
 with c1:
-    selected = st.selectbox("Hisse", st.session_state.portfolio, label_visibility="collapsed")
+    selected = st.selectbox("Hisse Kayıtlarım", st.session_state.portfolio, label_visibility="collapsed")
 with c2:
-    new_h = st.text_input("Ekle", placeholder="+ Sembol", label_visibility="collapsed")
+    new_h = st.text_input("Hisse Ekle", placeholder="+ Sembol (Örn: SASA.IS)", label_visibility="collapsed")
     if new_h:
-        if new_h.upper() not in st.session_state.portfolio:
-            st.session_state.portfolio.append(new_h.upper()); st.rerun()
+        sym = new_h.upper().strip()
+        if sym not in st.session_state.portfolio:
+            st.session_state.portfolio.append(sym)
+            st.rerun()
 with c3:
     if st.button("🗑️"):
-        st.session_state.portfolio.remove(selected); st.rerun()
+        if len(st.session_state.portfolio) > 1:
+            st.session_state.portfolio.remove(selected)
+            st.rerun()
 
-# Detay Kartı (Hata Korumalı)
+# Detay Analiz (Hata Korumalı)
 try:
     tick = yf.Ticker(selected)
     h_data = tick.history(period="5d")
     
-    # info verisini çekemezsek hata vermemesi için koruma
+    # Bilgi çekme (Rate Limit Koruması)
     try:
         inf = tick.info
         name = inf.get('longName', selected)
         mcap = f"{inf.get('marketCap', 0)/1e9:.1f}B"
+        sector = inf.get('sector', 'N/A')
     except:
         name = selected
         mcap = "N/A"
+        sector = "N/A"
 
     if not h_data.empty:
         last = h_data['Close'].iloc[-1]
         st.markdown("<div class='terminal-card'>", unsafe_allow_html=True)
-        st.markdown(f"**{name}**", unsafe_allow_html=True)
+        st.markdown(f"**{name}** | <small>{sector}</small>", unsafe_allow_html=True)
         
         g1, g2, g3 = st.columns(3)
         with g1:
@@ -116,7 +119,7 @@ try:
             st.markdown(f"<div class='v-row'><span class='v-label'>Piyasa D.</span><span class='v-value'>{mcap}</span></div>", unsafe_allow_html=True)
         with g3:
             change_5d = ((last / h_data['Close'].iloc[0]) - 1) * 100
-            st.markdown(f"<div class='v-row'><span class='v-label'>5G Değişim</span><span class='v-value'>%{change_5d:+.2f}</span></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='v-row'><span class='v-label'>5G Performans</span><span class='v-value'>%{change_5d:+.2f}</span></div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
-except Exception as e:
-    st.error("Yahoo Finance geçici olarak veri gönderimini durdurdu. Lütfen 1-2 dakika bekleyip sayfayı yenileyin.")
+except:
+    st.error("Veri bağlantısı kurulamadı. Lütfen bekleyin.")
