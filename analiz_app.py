@@ -7,48 +7,42 @@ from plotly.subplots import make_subplots
 # --- 1. AYARLAR ---
 st.set_page_config(page_title="Vision Pro Terminal", layout="wide")
 
-# --- 2. SENİN ÖZEL LİSTEN (BURAYI BİR KEZ DÜZENLE) ---
-# Buraya yazdığın hisseler senin "Kalıcı Listen" olacak.
-# Uygulama her sıfırlandığında bu liste geri gelir.
-FENOMEN_LISTE = "THYAO.IS, EREGL.IS, SISE.IS, ASTOR.IS, SASA.IS, BTC-USD, GC=F"
+# --- 2. KALICI LİSTE YAPILANDIRMASI ---
+# Buradaki listeyi bir kez düzenle, her açılışta bu liste gelir.
+if 'my_list' not in st.session_state:
+    st.session_state.my_list = "THYAO.IS, EREGL.IS, SISE.IS, ASTOR.IS, BTC-USD, GC=F"
 
-# --- 3. TASARIM (MODERN & AYDINLIK) ---
+# --- 3. TASARIM (AYDINLIK & PROFESYONEL) ---
 st.markdown("""
     <style>
-    .stApp { background-color: #fcfcfc; }
+    .stApp { background-color: #f8f9fa; }
     .compact-card {
-        background: white; padding: 12px; border-radius: 10px;
-        border: 1px solid #edf2f7; text-align: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+        background: white; padding: 15px; border-radius: 10px;
+        border: 1px solid #e2e8f0; text-align: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
-    .compact-card h4 { margin: 0; font-size: 0.75rem; color: #718096; text-transform: uppercase; }
-    .compact-card h2 { margin: 4px 0; font-size: 1.3rem; color: #2d3748; }
+    .compact-card h4 { margin: 0; font-size: 0.8rem; color: #64748b; }
+    .compact-card h2 { margin: 5px 0; font-size: 1.4rem; color: #1e293b; }
+    .decision-box {
+        padding: 20px; border-radius: 12px; color: white; text-align: center;
+        font-weight: bold; font-size: 1.2rem; margin-bottom: 20px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
     .kademe-box {
         background: #ffffff; padding: 15px; border-radius: 10px;
-        border: 1px solid #e2e8f0; font-family: 'Courier New', monospace;
-    }
-    .stButton>button { border-radius: 6px; height: 38px; border: 1px solid #e2e8f0; }
-    .signal-tag {
-        padding: 5px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: 600;
+        border: 1px solid #cbd5e1; font-family: monospace; height: 100%;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. HAFIZA YÖNETİMİ (PERSISTENCE) ---
-if 'my_list' not in st.session_state:
-    st.session_state.my_list = FENOMEN_LISTE
-
-# --- 5. SIDEBAR (YAN PANEL) ---
+# --- 4. YAN PANEL ---
 with st.sidebar:
     st.title("🛡️ Vision Terminal")
     st.markdown("---")
     
-    st.subheader("⭐ Takip Listeni Yönet")
-    user_input = st.text_area("Hisseleri virgülle ayır:", value=st.session_state.my_list, height=100)
-    
-    if st.button("💾 Listeyi Sisteme Kaydet", use_container_width=True):
-        st.session_state.my_list = user_input
-        st.success("Liste güncellendi!")
+    new_input = st.text_area("Takip Listesini Düzenle:", value=st.session_state.my_list, height=100)
+    if st.button("💾 LİSTEYİ KAYDET"):
+        st.session_state.my_list = new_input
         st.rerun()
 
     current_list = [x.strip().upper() for x in st.session_state.my_list.split(",")]
@@ -56,79 +50,82 @@ with st.sidebar:
     if 'active_ticker' not in st.session_state:
         st.session_state.active_ticker = current_list[0]
 
-    st.markdown("---")
-    st.write("📍 **Hızlı Erişim**")
+    st.markdown("### 📍 Hızlı Erişim")
     for ticker in current_list:
         if st.button(f"📊 {ticker}", use_container_width=True):
             st.session_state.active_ticker = ticker
-
+    
     st.markdown("---")
-    period = st.selectbox("Zaman Dilimi", ["1mo", "3mo", "6mo", "1y", "2y"], index=1)
+    period = st.selectbox("Analiz Periyodu", ["1mo", "3mo", "6mo", "1y"], index=1)
 
-# --- 6. VERİ ANALİZ MOTORU ---
+# --- 5. VERİ ÇEKME MOTORU ---
 @st.cache_data(ttl=60)
-def fetch_data(symbol, prd):
+def get_data(symbol, prd):
     try:
         data = yf.download(symbol, period=prd)
         if data.empty: return None
         data['MA20'] = data['Close'].rolling(20).mean()
         data['MA50'] = data['Close'].rolling(50).mean()
-        # RSI
-        change = data['Close'].diff()
-        up = change.clip(lower=0).rolling(14).mean()
-        down = -change.clip(upper=0).rolling(14).mean()
+        delta = data['Close'].diff()
+        up = delta.clip(lower=0).rolling(14).mean()
+        down = -delta.clip(upper=0).rolling(14).mean()
         data['RSI'] = 100 - (100 / (1 + (up / down)))
         return data
     except: return None
 
-df = fetch_data(st.session_state.active_ticker, period)
+df = get_data(st.session_state.active_ticker, period)
 
-# --- 7. EKRAN ÇIKTISI ---
+# --- 6. KARAR VE GÖRSELLEŞTİRME ---
 if df is not None:
-    def safe_val(val):
+    def safe_num(val):
         try:
             v = val.iloc[-1] if hasattr(val, 'iloc') else val
             return float(v.iloc[0]) if hasattr(v, 'iloc') else float(v)
         except: return 0.0
 
-    last_price = safe_val(df['Close'])
-    rsi_val = safe_val(df['RSI'])
-    ma20 = safe_val(df['MA20'])
-    vol = safe_val(df['Volume'])
+    last_p = safe_num(df['Close'])
+    rsi_p = safe_num(df['RSI'])
+    ma20_p = safe_num(df['MA20'])
+    ma50_p = safe_num(df['MA50'])
+    hacim_p = safe_num(df['Volume'])
 
-    # Başlık ve Sinyal
-    c_title, c_sig = st.columns([3, 1])
-    with c_title:
-        st.subheader(f"🚀 {st.session_state.active_ticker} Teknik Görünüm")
-    with c_sig:
-        if rsi_val < 35: st.markdown("<span class='signal-tag' style='background:#c6f6d5; color:#22543d;'>🟢 GÜÇLÜ AL</span>", unsafe_allow_html=True)
-        elif rsi_val > 65: st.markdown("<span class='signal-tag' style='background:#fed7d7; color:#822727;'>🔴 GÜÇLÜ SAT</span>", unsafe_allow_html=True)
-        else: st.markdown("<span class='signal-tag' style='background:#edf2f7; color:#2d3748;'>⚪ NÖTR</span>", unsafe_allow_html=True)
+    # --- AL-SAT ÖNERİ BÖLÜMÜ (GERİ GELDİ) ---
+    if rsi_p < 30:
+        bg, msg = "#22c55e", "🚀 GÜÇLÜ AL: Teknik olarak aşırı ucuz bölge!"
+    elif rsi_p > 70:
+        bg, msg = "#ef4444", "⚠️ GÜÇLÜ SAT: Teknik olarak aşırı değerli bölge!"
+    elif last_p > ma20_p and ma20_p > ma50_p:
+        bg, msg = "#0ea5e9", "📈 ALIMI KORU: Yükseliş trendi güçlü şekilde sürüyor."
+    elif last_p < ma20_p:
+        bg, msg = "#f59e0b", "🟡 BEKLE / NÖTR: Kısa vadeli zayıflık var, izlemede kal."
+    else:
+        bg, msg = "#64748b", "⚖️ KARARSIZ: Net bir yön sinyali yok."
 
-    # Üst Bilgi Paneli
-    col_info, col_depth = st.columns([3, 1])
+    st.markdown(f"<div class='decision-box' style='background-color:{bg}'>{msg}</div>", unsafe_allow_html=True)
+
+    # --- KOMPAKT VERİ PANELİ ---
+    c_info, c_kademe = st.columns([3, 1])
     
-    with col_info:
+    with c_info:
         m1, m2, m3, m4 = st.columns(4)
-        m1.markdown(f"<div class='compact-card'><h4>Fiyat</h4><h2>{last_price:,.2f}</h2></div>", unsafe_allow_html=True)
-        m2.markdown(f"<div class='compact-card'><h4>RSI</h4><h2>{rsi_val:.1f}</h2></div>", unsafe_allow_html=True)
-        m3.markdown(f"<div class='compact-card'><h4>MA20</h4><h2>{ma20:,.2f}</h2></div>", unsafe_allow_html=True)
-        m4.markdown(f"<div class='compact-card'><h4>Hacim</h4><h2>{vol/1e6:.1f}M</h2></div>", unsafe_allow_html=True)
+        m1.markdown(f"<div class='compact-card'><h4>Fiyat</h4><h2>{last_p:,.2f}</h2></div>", unsafe_allow_html=True)
+        m2.markdown(f"<div class='compact-card'><h4>RSI</h4><h2>{rsi_p:.1f}</h2></div>", unsafe_allow_html=True)
+        m3.markdown(f"<div class='compact-card'><h4>MA20</h4><h2>{ma20_p:,.2f}</h2></div>", unsafe_allow_html=True)
+        m4.markdown(f"<div class='compact-card'><h4>Hacim</h4><h2>{hacim_p/1e6:.1f}M</h2></div>", unsafe_allow_html=True)
 
-    with col_depth:
-        st.markdown("<div class='kademe-box'>" + 
-                    f"<b style='color:#4a5568'>KADEMELER</b><br>" + 
-                    f"<span style='color:#38a169'>Dir: {last_price*1.02:,.2f}</span><br>" +
-                    f"<span style='color:#718096'>Piv: {last_price:,.2f}</span><br>" +
-                    f"<span style='color:#e53e3e'>Des: {last_price*0.98:,.2f}</span></div>", unsafe_allow_html=True)
+    with c_kademe:
+        st.markdown(f"<div class='kademe-box'><b>TEKNİK SEVİYE</b><br><hr>" +
+                    f"<span style='color:green'>Dir: {last_p*1.02:,.2f}</span><br>" +
+                    f"<span style='color:red'>Des: {last_p*0.98:,.2f}</span><br>" +
+                    f"Trend: {'Yukarı' if last_p > ma20_p else 'Aşağı'}</div>", unsafe_allow_html=True)
 
-    # Grafik
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.07, row_heights=[0.8, 0.2])
-    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Fiyat"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df['MA20'], name="MA20", line=dict(color='#ed8936', width=1.5)), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name="RSI", line=dict(color='#805ad5', width=1.5)), row=2, col=1)
-    fig.update_layout(height=500, template="plotly_white", xaxis_rangeslider_visible=False, margin=dict(l=0,r=0,t=0,b=0))
+    # --- GRAFİK ---
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.8, 0.2])
+    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Mum"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['MA20'], name="MA20", line=dict(color='#f59e0b', width=1.5)), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name="RSI", line=dict(color='#8b5cf6')), row=2, col=1)
+    fig.update_layout(height=550, template="plotly_white", xaxis_rangeslider_visible=False, margin=dict(l=0,r=0,t=0,b=0))
     st.plotly_chart(fig, use_container_width=True)
 
 else:
-    st.warning("Veri bekleniyor... Lütfen listeden bir hisse seçin veya sembolü kontrol edin.")
+    st.warning("Lütfen yan panelden bir hisse seçin veya sembolü kontrol edin.")
