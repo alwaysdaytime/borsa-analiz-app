@@ -8,8 +8,7 @@ DB_FILE = "portfolio.txt"
 def load_portfolio():
     if os.path.exists(DB_FILE):
         with open(DB_FILE, "r") as f:
-            lines = f.readlines()
-            return [line.strip() for line in lines if line.strip()]
+            return [line.strip() for line in f.readlines() if line.strip()]
     return ["THYAO.IS", "EREGL.IS", "SISE.IS", "BTC-USD"]
 
 def save_portfolio(portfolio):
@@ -47,7 +46,7 @@ st.markdown("""
 @st.cache_data(ttl=600)
 def scan_bist_market():
     results = []
-    candidates = ["THYAO.IS", "EREGL.IS", "ASELS.IS", "TUPRS.IS", "GARAN.IS"]
+    candidates = ["THYAO.IS", "EREGL.IS", "ASELS.IS", "TUPRS.IS", "GARAN.IS", "AKBNK.IS"]
     for symbol in candidates:
         try:
             t = yf.Ticker(symbol)
@@ -58,7 +57,7 @@ def scan_bist_market():
         except: continue
     return sorted(results, key=lambda x: x['chg'], reverse=True)[:3]
 
-# --- 4. ARAYÜZ ---
+# --- 4. ARAYÜZ ÜST BÖLÜM ---
 st.markdown("<h4 style='margin:0;'>🚀 AI Market Opportunities (BIST)</h4>", unsafe_allow_html=True)
 
 opps = scan_bist_market()
@@ -70,7 +69,7 @@ if opps:
 
 st.markdown("---")
 
-# Kontroller
+# Kontroller (Ekle/Sil/Seç)
 c1, c2, c3, c4 = st.columns([2, 1.5, 0.5, 4.3])
 with c1:
     selected = st.selectbox("Portföyüm", st.session_state.portfolio, label_visibility="collapsed")
@@ -80,66 +79,55 @@ with c2:
         sym = new_h.upper().strip()
         if not sym.endswith(".IS") and "-" not in sym: sym += ".IS"
         if sym not in st.session_state.portfolio:
-            st.session_state.portfolio.append(sym)
-            save_portfolio(st.session_state.portfolio)
-            st.rerun()
+            st.session_state.portfolio.append(sym); save_portfolio(st.session_state.portfolio); st.rerun()
 with c3:
     if st.button("🗑️") and len(st.session_state.portfolio) > 1:
-        st.session_state.portfolio.remove(selected)
-        save_portfolio(st.session_state.portfolio)
-        st.rerun()
+        st.session_state.portfolio.remove(selected); save_portfolio(st.session_state.portfolio); st.rerun()
 
-# --- 5. DERİN ANALİZ (GELİŞTİRİLMİŞ HATA YÖNETİMİ) ---
+# --- 5. DETAYLI VERİ & ANALİZ PANELİ ---
 try:
     tick = yf.Ticker(selected)
-    # Veri çekme denemesi (period="1y" bazen hata verebilir, period="max" veya "2y" daha stabildir)
-    h_data = tick.history(period="2y")
+    h_data = tick.history(period="1y")
     
-    if h_data.empty:
-        # Alternatif deneme
-        h_data = tick.history(period="1mo")
-
     if not h_data.empty:
         last = h_data['Close'].iloc[-1]
         prev_close = h_data['Close'].iloc[-2] if len(h_data) > 1 else last
-        low_52 = h_data['Close'].tail(252).min()
-        high_52 = h_data['Close'].tail(252).max()
+        low_52 = h_data['Close'].min()
+        high_52 = h_data['Close'].max()
         
+        # BIST Kuralları: Tavan/Taban %10
         tavan, taban = prev_close * 1.10, prev_close * 0.90
+        
+        # Karar Mekanizması
         sma20 = h_data['Close'].rolling(20).mean().iloc[-1]
         karar, renk = ("BOĞA / AL", "#10b981") if last > sma20 else ("AYI / SAT", "#ef4444")
 
         st.markdown(f"<div class='recommendation-bar' style='background:{renk}'>{selected}: {karar}</div>", unsafe_allow_html=True)
         
-        # ANA ANALİZ KARTI
+        # ANA ANALİZ KARTI (Fiyat, 12A ve FK Verileri)
         st.markdown("<div class='terminal-card'>", unsafe_allow_html=True)
         g1, g2, g3 = st.columns(3)
         with g1:
-            st.markdown(f"<div class='v-row'><span class='v-label'>Fiyat</span><span class='v-value'>{last:,.2f}</span></div>")
-            st.markdown(f"<div class='v-row'><span class='v-label'>Önc. Kapanış</span><span class='v-value'>{prev_close:,.2f}</span></div>")
+            st.markdown(f"<div class='v-row'><span class='v-label'>Fiyat</span><span class='v-value'>{last:,.2f}</span></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='v-row'><span class='v-label'>Önc. Kapanış</span><span class='v-value'>{prev_close:,.2f}</span></div>", unsafe_allow_html=True)
         with g2:
-            st.markdown(f"<div class='v-row'><span class='v-label'>12A En Düşük</span><span class='v-value'>{low_52:,.2f}</span></div>")
-            st.markdown(f"<div class='v-row'><span class='v-label'>12A En Yüksek</span><span class='v-value'>{high_52:,.2f}</span></div>")
+            st.markdown(f"<div class='v-row'><span class='v-label'>12A En Düşük</span><span class='v-value'>{low_52:,.2f}</span></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='v-row'><span class='v-label'>12A En Yüksek</span><span class='v-value'>{high_52:,.2f}</span></div>", unsafe_allow_html=True)
         with g3:
             try:
                 inf = tick.info
-                pe = inf.get('trailingPE', 'N/A')
+                # F/K Oranını temiz bir sayıya çeviriyoruz (Örn: 12.86)
+                pe_raw = inf.get('trailingPE', 'N/A')
+                pe = f"{pe_raw:.2f}" if isinstance(pe_raw, (int, float)) else "N/A"
                 mcap = f"{inf.get('marketCap', 0)/1e9:.1f}B"
             except: pe, mcap = "N/A", "N/A"
-            st.markdown(f"<div class='v-row'><span class='v-label'>F/K Oranı</span><span class='v-value'>{pe}</span></div>")
-            st.markdown(f"<div class='v-row'><span class='v-label'>Piyasa Değeri</span><span class='v-value'>{mcap}</span></div>")
+            st.markdown(f"<div class='v-row'><span class='v-label'>F/K Oranı</span><span class='v-value'>{pe}</span></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='v-row'><span class='v-label'>Piyasa Değeri</span><span class='v-value'>{mcap}</span></div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # ALT PANEL
+        # ANLIK BORSA PANELİ (Taban, Tavan, Hacim)
         st.markdown(f"""
             <div class="live-data-box">
                 <div class="live-item"><span class="live-label">Tavan</span><span class="live-val" style="color:#4ade80;">{tavan:,.2f}</span></div>
                 <div class="live-item"><span class="live-label">Taban</span><span class="live-val" style="color:#f87171;">{taban:,.2f}</span></div>
-                <div class="live-item"><span class="live-label">Hacim</span><span class="live-val">{h_data['Volume'].iloc[-1]:,.0f}</span></div>
-                <div class="live-item"><span class="live-label">20G Ort.</span><span class="live-val">{sma20:,.2f}</span></div>
-            </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.warning(f"{selected} için veri şu an çekilemiyor. Yahoo limitlerine takılmış olabilirsiniz.")
-except Exception as e:
-    st.error(f"Sistem Hatası: {e}")
+                <div class="live-item"><span class="live-label">Günlük Hacim</span><span class="live-val">{h_data
